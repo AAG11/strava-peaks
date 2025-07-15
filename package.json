@@ -6,6 +6,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "backfill": "ts-node --esm scripts/backfillPeaks.ts",
+    "build": "tsc",
     "peek": "ts-node --esm scripts/peekPeaks.ts"
   },
   "keywords": [],
@@ -24,6 +25,7 @@
     "prisma": "^6.11.1"
   },
   "devDependencies": {
+    "@flydotio/dockerfile": "^0.7.10",
     "@types/cookie-parser": "^1.4.9",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",

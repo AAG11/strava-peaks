@@ -1,13 +1,19 @@
 import express from "express";
-import dotenv from "dotenv";        
+import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import authRouter from "./routes/auth";
-import prisma from "./utils/prisma";
-import cors from "cors";
 
-dotenv.config();  
+dotenv.config();
+
 const app = express();
-app.use(cors());
+app.use(cookieParser());
+app.use(authRouter);
+
+app.get("/health", (_, res) => res.send("ok"));
+
+// ---- bind to Fly's $PORT OR fallback to 4000 ----
+const port = Number(process.env.PORT) || 4000;
+app.listen(port, "0.0.0.0", () => console.log(`API listening on :${port}`));
 
 
 /* ------------------------------------------------------------------
@@ -61,7 +67,7 @@ app.get("/me/peaks", async (_, res) => {
   
     res.json(safeRows);
   });
-  
+
   //ascents endpoint
   app.get("/me/ascents", async (_, res) => {
     const user = await prisma.user.findFirst();
