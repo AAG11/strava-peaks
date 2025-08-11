@@ -1,7 +1,9 @@
 node_modules
-# Keep environment variables out of version control
+dist
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+npm-debug.log*
 .env
-
-/src/generated/prisma
-node_modules/
-.env
+.env.local
