@@ -4,6 +4,8 @@ import prisma from "../utils/prisma";
 
 const router = Router();
 
+// Express v5 typings expect explicit returns in handlers for async functions
+
 // Where the API lives (port 4000 locally)
 const API_BASE = process.env.PUBLIC_API_URL || "http://localhost:4000";
 // Where the web app lives (port 3000 locally)
@@ -20,9 +22,9 @@ router.get("/login", (_req, res) => {
   res.redirect(`https://www.strava.com/oauth/authorize?${params.toString()}`);
 });
 
-router.get("/callback", async (req, res) => {
+router.get("/callback", async (req, res): Promise<void> => {
   const code = req.query.code as string;
-  if (!code) return res.status(400).send("Missing code");
+  if (!code) { res.status(400).send("Missing code"); return; }
 
   try {
     const token = await axios.post("https://www.strava.com/oauth/token", {
@@ -60,9 +62,11 @@ router.get("/callback", async (req, res) => {
 
     // Send user back to the React app
     res.redirect(`${FRONTEND_URL}/?connected=1`);
+    return;
   } catch (e: any) {
     console.error("OAuth exchange failed:", e?.response?.data || e.message);
     res.redirect(`${FRONTEND_URL}/?error=strava_oauth`);
+    return;
   }
 });
 

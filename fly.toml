@@ -11,6 +11,12 @@ primary_region = "iad"
 [env]
   PORT = "4000"
 
+[processes]
+app = "node dist/server.js"
+
+[deploy]
+release_command = "npx prisma migrate deploy"
+
 [http_service]
   internal_port = 4000
   force_https = true
