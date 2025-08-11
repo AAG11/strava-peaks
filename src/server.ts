@@ -12,10 +12,11 @@ dotenv.config();
 const app = express();
 app.use(cookieParser());
 app.use("/auth", authRouter);
-app.use(cors({ origin: "http://localhost:3000" }));  // add once, near top
+const allowed = [process.env.FRONTEND_URL, "http://localhost:3000"].filter(Boolean) as string[];
+app.use(cors({ origin: allowed }));
 
 // Health check endpoint
-app.get("/health", (_, res) => res.send("ok"));
+app.get("/health", (_req, res) => { res.send("ok"); });
 
 /*
   GET /me/peaks
@@ -24,9 +25,9 @@ app.get("/health", (_, res) => res.send("ok"));
     • num_acts: number of your activities on that peak
     • latest_act_id: newest activity ID (as string) on that peak
 */
-app.get("/me/peaks", async (_, res) => {
-  const user = await prisma.user.findFirst();           // TODO: replace with session‑based user lookup
-  if (!user) return res.json([]);
+app.get("/me/peaks", async (_req, res) => {
+  const user = await prisma.user.findFirst();
+  if (!user) { res.json([]); return; }
 
   const rows = await prisma.$queryRaw<{
     id: number;
@@ -59,16 +60,16 @@ app.get("/me/peaks", async (_, res) => {
   res.json(
     rows.map(r => ({
       ...r,
-      num_acts: Number(r.num_acts ?? 0),               // convert bigint to number
-      latest_act_id: r.latest_act_id ? r.latest_act_id.toString() : null
+      num_acts: Number(r.num_acts ?? 0),
+      latest_act_id: r.latest_act_id ? r.latest_act_id.toString() : null,
     }))
   );
 });
 
 // GET /me/ascents: list all climbs by date and peak
-app.get("/me/ascents", async (_, res) => {
+app.get("/me/ascents", async (_req, res) => {
   const user = await prisma.user.findFirst();
-  if (!user) return res.json([]);
+  if (!user) { res.json([]); return; }
 
   const rows = await prisma.$queryRaw<{
     peak: string;
@@ -92,18 +93,13 @@ app.get("/me/ascents", async (_, res) => {
     ORDER BY a."startDate" DESC, p.name;
   `;
 
-  res.json(
-    rows.map(r => ({
-      ...r,
-      act_id: r.act_id.toString()                      // convert BigInt to string
-    }))
-  );
+  res.json(rows.map(r => ({ ...r, act_id: r.act_id.toString() })));
 });
 
 // POST /me/refresh  → pulls only-new Strava activities and rematches peaks
 app.post("/me/refresh", async (_req, res) => {
   const user = await prisma.user.findFirst();
-  if (!user) return res.status(401).json({ ok: false, error: "no-user" });
+  if (!user) { res.status(401).json({ ok: false, error: "no-user" }); return; }
 
   // ---- 1) get a valid access token (refresh if needed) ----
   async function getToken() {
@@ -169,13 +165,15 @@ app.post("/me/refresh", async (_req, res) => {
   const tok = await getToken();
   if (!tok.ok) {
     if (tok.reason === "connect") {
-      return res.status(428).json({
+      res.status(428).json({
         ok: false,
         error: "connect-strava",
         login: `${process.env.PUBLIC_API_URL || "http://localhost:4000"}/auth/login`,
       });
+      return;
     }
-    return res.status(400).json({ ok: false, error: "refresh-failed" });
+    res.status(400).json({ ok: false, error: "refresh-failed" });
+    return;
   }
   
   const token = tok.access; // safe to use

@@ -1,20 +1,17 @@
-FROM node:20-slim
+FROM node:20-alpine
 
 WORKDIR /app
 
-# Install production + dev deps (ts-node runs in prod)
-COPY package*.json tsconfig.json ./
-RUN npm ci
+# Install deps
+COPY package*.json ./
+RUN npm install
 
-# Prisma client
-COPY prisma ./prisma
-RUN npx prisma generate
-
-# App source
+# Copy source and build TS -> JS
 COPY . .
+RUN npm run build
 
-# OpenSSL for HTTPS in Prisma
-RUN apt-get update -y && apt-get install -y openssl
-
+ENV NODE_ENV=production
+ENV PORT=4000
 EXPOSE 4000
-CMD ["node", "--loader", "ts-node/esm", "src/server.ts"]
+
+CMD ["node", "dist/server.js"]

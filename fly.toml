@@ -3,21 +3,30 @@
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'strava-peaks-api'
-primary_region = 'iad'
+# fly.toml (root of the repo)
 
-[build]
+app = "strava-peaks-api"
+primary_region = "iad"
 
-[deploy]
-  release_command = 'npx prisma migrate deploy'
+[env]
+  PORT = "4000"
 
 [http_service]
   internal_port = 4000
   force_https = true
-  auto_stop_machines = 'stop'
+  auto_stop_machines = "stop"
   auto_start_machines = true
-  min_machines_running = 0
-  processes = ['app']
+  min_machines_running = 1
+  processes = ["app"]
 
-[[vm]]
-  size = 'shared-cpu-1x'
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 20
+    hard_limit = 40
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "2s"
+    method = "GET"
+    path = "/health"
+
