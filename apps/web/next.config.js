@@ -1,6 +1,4 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-const nextConfig = {
-/* config options here */
-};
-exports.default = nextConfig;
+// apps/web/next.config.js
+/** @type {import('next').NextConfig} */
+const nextConfig = {};
+module.exports = nextConfig;

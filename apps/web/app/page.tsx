@@ -13,44 +13,84 @@ type Peak = {
   lon: number;
   elevation: number;
   done: boolean;
+  latest_act_id?: string; // you link to this below
 };
 
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 const Map = dynamic(() => import("./Map"), { ssr: false });
-const mToMi  = (m:number) => (m / 1609.344).toFixed(2);
-const mToFt  = (m:number) => (m * 3.28084).toFixed(0);
 
 export default function Home() {
   const [peaks, setPeaks] = useState<Peak[]>([]);
-  const done = peaks.filter(p => p.done).length;
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function loadPeaks() {
+    const data = await fetch(`${API}/me/peaks`).then(r => r.json());
+    setPeaks(data);
+  }
 
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/me/peaks`)
-      .then(r => r.json())
-      .then(setPeaks);
+    loadPeaks();
   }, []);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("connected") === "1") {
+      refreshNow().finally(() => {
+        // remove the query param so it doesn’t re-trigger
+        window.history.replaceState({}, "", window.location.pathname);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  async function refreshNow() {
+    try {
+      setRefreshing(true);
+      const r = await fetch(`${API}/me/refresh`, { method: "POST" });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({} as any));
+        if (j?.error === "connect-strava" && j.login) {
+          window.location.href = j.login; // send to Strava login flow
+          return;
+        }
+        throw new Error(`Refresh failed: ${r.status}`);
+      }
+      await loadPeaks();
+    } catch (e) {
+      console.error(e);
+      alert("Refresh failed. Check API logs.");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  const done = peaks.filter(p => p.done).length;
 
   return (
     <main className="flex flex-col gap-6 p-6">
-      <h1 className="text-3xl font-bold">NH 4 000-Footer Progress</h1>
+      <div className="flex items-center gap-3">
+        <h1 className="text-3xl font-bold">NH 4 000-Footer Progress</h1>
+        <button
+          onClick={refreshNow}
+          disabled={refreshing}
+          className="px-3 py-1 rounded bg-blue-600 text-white disabled:opacity-50"
+          title="Pull newest activities from Strava"
+        >
+          {refreshing ? "Refreshing…" : "Refresh from Strava"}
+        </button>
+      </div>
 
       <div className="w-40">
         <CircularProgressbar
           value={done}
           maxValue={48}
           text={`${done}/48`}
-          styles={buildStyles({
-            pathColor: "#16a34a",
-            textSize: "18px",
-          })}
+          styles={buildStyles({ pathColor: "#16a34a", textSize: "18px" })}
         />
       </div>
 
       <section className="grid md:grid-cols-2 gap-4">
-      <ul>
-        <h2 className="font-semibold">✅ Done</h2>
-        {peaks
-          .filter(p => p.done)
-          .map(p => (
+        <ul>
+          <h2 className="font-semibold">✅ Done</h2>
+          {peaks.filter(p => p.done).map(p => (
             <li key={p.id}>
               <a
                 href={`https://www.strava.com/activities/${p.latest_act_id}`}
@@ -62,7 +102,8 @@ export default function Home() {
               </a>
             </li>
           ))}
-      </ul>
+        </ul>
+
         <ul className="space-y-1">
           <h2 className="font-semibold">📋 To do</h2>
           {peaks.filter(p => !p.done).map(p => (
@@ -70,7 +111,11 @@ export default function Home() {
           ))}
         </ul>
       </section>
-      <a href="/ascents" className="text-blue-700 underline">Full ascents table</a>
+
+      <a href="/ascents" className="text-blue-700 underline">
+        Full ascents table
+      </a>
+
       <Map peaks={peaks} />
     </main>
   );

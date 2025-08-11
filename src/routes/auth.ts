@@ -1,63 +1,69 @@
 import { Router } from "express";
 import axios from "axios";
-import jwt from "jsonwebtoken";
-
-import prisma from "../utils/prisma";   // we’ll add a thin wrapper below
+import prisma from "../utils/prisma";
 
 const router = Router();
-/**
- *  GET /auth/login  – redirect user to Strava consent screen
- */
-router.get("/login", (_, res) => {
+
+// Where the API lives (port 4000 locally)
+const API_BASE = process.env.PUBLIC_API_URL || "http://localhost:4000";
+// Where the web app lives (port 3000 locally)
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+
+router.get("/login", (_req, res) => {
   const params = new URLSearchParams({
-    client_id: process.env.STRAVA_CLIENT_ID!,
-    redirect_uri: "http://localhost:4000/auth/callback",
+    client_id: String(process.env.STRAVA_CLIENT_ID || ""),
+    redirect_uri: `${API_BASE}/auth/callback`,
     response_type: "code",
-    scope: "read,activity:read_all,profile:read_all",
+    scope: "read,profile:read_all,activity:read_all",
+    approval_prompt: "auto",
   });
   res.redirect(`https://www.strava.com/oauth/authorize?${params.toString()}`);
 });
 
-/**
- *  GET /auth/callback  – Strava redirects here with ?code=xyz
- */
 router.get("/callback", async (req, res) => {
-  const { code } = req.query;
-  if (!code) return res.status(400).send("No code");
+  const code = req.query.code as string;
+  if (!code) return res.status(400).send("Missing code");
 
-  // 1️⃣ exchange the code for tokens
-  const { data } = await axios.post("https://www.strava.com/oauth/token", {
-    client_id: process.env.STRAVA_CLIENT_ID,
-    client_secret: process.env.STRAVA_CLIENT_SECRET,
-    code,
-    grant_type: "authorization_code",
-  });
+  try {
+    const token = await axios.post("https://www.strava.com/oauth/token", {
+      grant_type: "authorization_code",
+      client_id: process.env.STRAVA_CLIENT_ID,
+      client_secret: process.env.STRAVA_CLIENT_SECRET,
+      code,
+    });
 
-  const { athlete, access_token, refresh_token, expires_at } = data;
+    const t = token.data;
+    const athleteId = BigInt(t.athlete?.id);
 
-  // 2️⃣ upsert in DB
-  const user = await prisma.user.upsert({
-    where: { stravaId: athlete.id },
-    update: {
-      username: athlete.username,
-      accessToken: access_token,
-      refreshToken: refresh_token,
-      tokenExpiresAt: new Date(expires_at * 1000),
-    },
-    create: {
-      stravaId: athlete.id,
-      username: athlete.username,
-      accessToken: access_token,
-      refreshToken: refresh_token,
-      tokenExpiresAt: new Date(expires_at * 1000),
-    },
-  });
+    // Store/refresh tokens for this athlete
+    await prisma.user.upsert({
+      where: { stravaId: athleteId },
+      update: {
+        accessToken: t.access_token,
+        refreshToken: t.refresh_token,
+        tokenExpiresAt: new Date(t.expires_at * 1000),
+      } as any,
+      create: {
+        stravaId: athleteId,
+        accessToken: t.access_token,
+        refreshToken: t.refresh_token,
+        tokenExpiresAt: new Date(t.expires_at * 1000),
+      } as any,
+    });
 
-  // 3️⃣ issue your own session JWT (24 h)
-  const session = jwt.sign({ uid: user.id, stravaId: athlete.id }, process.env.JWT_SECRET!, { expiresIn: "24h" });
-  res.cookie("session", session, { httpOnly: true, sameSite: "lax" });
+    // Optional: kick off a background refresh (don’t block redirect)
+    try {
+      await axios.post(`${API_BASE}/me/refresh`);
+    } catch (e) {
+      console.warn("post-auth refresh failed (non-fatal)");
+    }
 
-  res.send("✅ Auth OK — we’ll add a real dashboard later");
+    // Send user back to the React app
+    res.redirect(`${FRONTEND_URL}/?connected=1`);
+  } catch (e: any) {
+    console.error("OAuth exchange failed:", e?.response?.data || e.message);
+    res.redirect(`${FRONTEND_URL}/?error=strava_oauth`);
+  }
 });
 
 export default router;

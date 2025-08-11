@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "dev": "tsx src/server.ts",
     "backfill": "ts-node --esm scripts/backfillPeaks.ts",
     "build": "tsc",
     "peek": "ts-node --esm scripts/peekPeaks.ts"

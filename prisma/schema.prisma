@@ -1,15 +1,15 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-generator client {
-  provider = "prisma-client-js"
-}
-
 model User {
-  id             Int     @id @default(autoincrement())
-  stravaId       BigInt  @unique          // <— was Int
+  id             Int        @id @default(autoincrement())
+  stravaId       BigInt     @unique
   username       String?
   accessToken    String
   refreshToken   String
@@ -18,31 +18,32 @@ model User {
 }
 
 model Activity {
-  id         BigInt @id
-  user       User   @relation(fields: [userId], references: [id])
-  userId     Int
-  name       String
-  distance   Float
-  movingTime Int
-  startDate  DateTime
-  polyline   String
-  totalElevationGain Float?      // ← add this line
-  peaks      PeakOnActivity[]
+  id                 BigInt           @id
+  userId             Int
+  name               String
+  distance           Float
+  movingTime         Int
+  startDate          DateTime
+  polyline           String
+  totalElevationGain Float?
+  user               User             @relation(fields: [userId], references: [id])
+  peaks              PeakOnActivity[]
 }
+
 model Peak {
-  id        Int    @id @default(autoincrement())
-  name      String @unique
-  lat       Float
-  lon       Float
-  elevation Int
+  id         Int              @id @default(autoincrement())
+  name       String           @unique
+  lat        Float
+  lon        Float
+  elevation  Int
   activities PeakOnActivity[]
 }
 
 model PeakOnActivity {
   peakId     Int
   activityId BigInt
-  Peak       Peak     @relation(fields: [peakId], references: [id])
   Activity   Activity @relation(fields: [activityId], references: [id])
+  Peak       Peak     @relation(fields: [peakId], references: [id])
 
   @@id([peakId, activityId])
 }

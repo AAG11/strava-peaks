@@ -1,22 +1,8 @@
-"use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const express_1 = require("express");
-const axios_1 = __importDefault(require("axios"));
-const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
-const prisma_1 = __importDefault(require("../utils/prisma")); // we’ll add a thin wrapper below
-const router = (0, express_1.Router)();
+import { Router } from "express";
+import axios from "axios";
+import jwt from "jsonwebtoken";
+import prisma from "../utils/prisma"; // we’ll add a thin wrapper below
+const router = Router();
 /**
  *  GET /auth/login  – redirect user to Strava consent screen
  */
@@ -32,12 +18,12 @@ router.get("/login", (_, res) => {
 /**
  *  GET /auth/callback  – Strava redirects here with ?code=xyz
  */
-router.get("/callback", (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+router.get("/callback", async (req, res) => {
     const { code } = req.query;
     if (!code)
         return res.status(400).send("No code");
     // 1️⃣ exchange the code for tokens
-    const { data } = yield axios_1.default.post("https://www.strava.com/oauth/token", {
+    const { data } = await axios.post("https://www.strava.com/oauth/token", {
         client_id: process.env.STRAVA_CLIENT_ID,
         client_secret: process.env.STRAVA_CLIENT_SECRET,
         code,
@@ -45,7 +31,7 @@ router.get("/callback", (req, res) => __awaiter(void 0, void 0, void 0, function
     });
     const { athlete, access_token, refresh_token, expires_at } = data;
     // 2️⃣ upsert in DB
-    const user = yield prisma_1.default.user.upsert({
+    const user = await prisma.user.upsert({
         where: { stravaId: athlete.id },
         update: {
             username: athlete.username,
@@ -62,8 +48,8 @@ router.get("/callback", (req, res) => __awaiter(void 0, void 0, void 0, function
         },
     });
     // 3️⃣ issue your own session JWT (24 h)
-    const session = jsonwebtoken_1.default.sign({ uid: user.id, stravaId: athlete.id }, process.env.JWT_SECRET, { expiresIn: "24h" });
+    const session = jwt.sign({ uid: user.id, stravaId: athlete.id }, process.env.JWT_SECRET, { expiresIn: "24h" });
     res.cookie("session", session, { httpOnly: true, sameSite: "lax" });
     res.send("✅ Auth OK — we’ll add a real dashboard later");
-}));
-exports.default = router;
+});
+export default router;

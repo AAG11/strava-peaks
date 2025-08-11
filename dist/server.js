@@ -1,25 +1,11 @@
-"use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const express_1 = __importDefault(require("express"));
-const dotenv_1 = __importDefault(require("dotenv"));
-const cookie_parser_1 = __importDefault(require("cookie-parser"));
-const auth_1 = __importDefault(require("./routes/auth"));
-dotenv_1.default.config();
-const app = (0, express_1.default)();
-app.use((0, cookie_parser_1.default)());
-app.use(auth_1.default);
+import express from "express";
+import dotenv from "dotenv";
+import cookieParser from "cookie-parser";
+import authRouter from "./routes/auth";
+dotenv.config();
+const app = express();
+app.use(cookieParser());
+app.use(authRouter);
 app.get("/health", (_, res) => res.send("ok"));
 // ---- bind to Fly's $PORT OR fallback to 4000 ----
 const port = Number(process.env.PORT) || 4000;
@@ -32,13 +18,13 @@ app.listen(port, "0.0.0.0", () => console.log(`API listening on :${port}`));
         – latest_act_id:  string (safe for JSON)  – newest activity on that peak
    • converts any bigint columns to number / string so JSON.stringify won’t fail
 -------------------------------------------------------------------*/
-app.get("/me/peaks", (_, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.get("/me/peaks", async (_, res) => {
     // 🔒  TODO: pull userId from the session JWT; for now grab the first user
-    const user = yield prisma.user.findFirst();
+    const user = await prisma.user.findFirst();
     if (!user)
         return res.json([]);
     // Postgres query
-    const rows = yield prisma.$queryRaw `
+    const rows = await prisma.$queryRaw `
       SELECT
         p.id,
         p.name,
@@ -57,18 +43,19 @@ app.get("/me/peaks", (_, res) => __awaiter(void 0, void 0, void 0, function* () 
       ORDER BY p.name;
     `;
     // --- bigint ➜ JSON-safe values ---
-    const safeRows = rows.map(r => {
-        var _a;
-        return (Object.assign(Object.assign({}, r), { num_acts: Number((_a = r.num_acts) !== null && _a !== void 0 ? _a : 0), latest_act_id: r.latest_act_id ? r.latest_act_id.toString() : null }));
-    });
+    const safeRows = rows.map(r => ({
+        ...r,
+        num_acts: Number(r.num_acts ?? 0),
+        latest_act_id: r.latest_act_id ? r.latest_act_id.toString() : null
+    }));
     res.json(safeRows);
-}));
+});
 //ascents endpoint
-app.get("/me/ascents", (_, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const user = yield prisma.user.findFirst();
+app.get("/me/ascents", async (_, res) => {
+    const user = await prisma.user.findFirst();
     if (!user)
         return res.json([]);
-    const rows = yield prisma.$queryRaw `
+    const rows = await prisma.$queryRaw `
       SELECT
         p.name                     AS peak,
         a."startDate"              AS date,
@@ -83,10 +70,13 @@ app.get("/me/ascents", (_, res) => __awaiter(void 0, void 0, void 0, function* (
       ORDER BY a."startDate" DESC, p.name;
     `;
     //  BigInt → string for JSON
-    res.json(rows.map(r => (Object.assign(Object.assign({}, r), { act_id: r.act_id.toString() }))));
-}));
+    res.json(rows.map(r => ({
+        ...r,
+        act_id: r.act_id.toString()
+    })));
+});
 app.get("/health", (_, res) => res.send("ok"));
-app.use((0, cookie_parser_1.default)());
-app.use("/auth", auth_1.default); // mounts /auth/*    // loads .env
+app.use(cookieParser());
+app.use("/auth", authRouter); // mounts /auth/*    // loads .env
 const port = process.env.PORT || 4000;
 app.listen(port, () => console.log(`API listening on :${port}`));
