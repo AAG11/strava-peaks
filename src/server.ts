@@ -11,7 +11,7 @@ dotenv.config();
 
 const app = express();
 
-const allowed = [process.env.FRONTEND_URL, "http://localhost:3000"].filter(Boolean) as string[];
+const allowed = [process.env.FRONTEND_URL, "http://localhost:3000", "http://127.0.0.1:3000"].filter(Boolean) as string[];
 
 app.use(cors({
   origin(origin, cb) {
@@ -24,14 +24,10 @@ app.use(cors({
   credentials: true,
 }));
 
-app.options("*", cors({
-  origin(origin, cb) {
-    if (!origin) return cb(null, true);
-    cb(null, allowed.includes(origin));
-  },
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true,
-}));
+app.use((req, res, next) => {
+  if (req.method === "OPTIONS") { res.sendStatus(204); return; }
+  next();
+});
 
 app.use(cookieParser());
 app.use("/auth", authRouter);
