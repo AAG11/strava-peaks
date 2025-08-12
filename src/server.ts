@@ -12,8 +12,15 @@ dotenv.config();
 const app = express();
 app.use(cookieParser());
 app.use("/auth", authRouter);
-const allowed = [process.env.FRONTEND_URL, "http://localhost:3000"].filter(Boolean) as string[];
-app.use(cors({ origin: allowed }));
+const allowed = [process.env.FRONTEND_URL, "http://localhost:3000"]
+  .filter(Boolean) as string[];
+
+app.use(cors({
+  origin: allowed,
+  methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
+}));
+
+app.options("*", cors({ origin: allowed }));
 
 // Health check endpoint
 app.get("/health", (_req, res) => { res.send("ok"); });
@@ -220,7 +227,7 @@ app.post("/me/refresh", async (_req, res) => {
       }
 
       // upsert
-      const rec = await prisma.activity.upsert({
+      await prisma.activity.upsert({
         where: { id: BigInt(a.id) },
         update: {
           name: a.name,
@@ -242,20 +249,9 @@ app.post("/me/refresh", async (_req, res) => {
         },
       });
 
-      if (rec) {
-        if (rec.userId === user.id) {
-          // If it already existed, this will be an update; quick heuristic:
-          if (rec.createdAt) {
-            // if you don't have createdAt, count updates separately by checking a boolean
-          }
-        }
-        // match peaks for this activity
-        const addCount = await matchPeaksForActivity(BigInt(a.id), user.id);
-        matched += addCount;
-      }
-      // track counts (rough)
-      // we can detect create vs update by catching Prisma error code P2002, but upsert simplified it
-      added++; // treat as inserted-or-updated; you can split if you store createdAt
+      const addCount = await matchPeaksForActivity(BigInt(a.id), user.id);
+      matched += addCount;
+      added++;
     }
 
     page += 1;
