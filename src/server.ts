@@ -10,17 +10,31 @@ import { matchPeaksForActivity } from "./utils/geo";
 dotenv.config();
 
 const app = express();
-app.use(cookieParser());
-app.use("/auth", authRouter);
-const allowed = [process.env.FRONTEND_URL, "http://localhost:3000"]
-  .filter(Boolean) as string[];
+
+const allowed = [process.env.FRONTEND_URL, "http://localhost:3000"].filter(Boolean) as string[];
 
 app.use(cors({
-  origin: allowed,
-  methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
+  origin(origin, cb) {
+    // Allow server-to-server (no Origin) and any whitelisted origin
+    if (!origin) return cb(null, true);
+    cb(null, allowed.includes(origin));
+  },
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
 }));
 
-app.options("*", cors({ origin: allowed }));
+app.options("*", cors({
+  origin(origin, cb) {
+    if (!origin) return cb(null, true);
+    cb(null, allowed.includes(origin));
+  },
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+}));
+
+app.use(cookieParser());
+app.use("/auth", authRouter);
 
 // Health check endpoint
 app.get("/health", (_req, res) => { res.send("ok"); });
