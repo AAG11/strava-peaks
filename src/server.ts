@@ -47,78 +47,88 @@ app.get("/health", (_req, res) => { res.send("ok"); });
     • latest_act_id: newest activity ID (as string) on that peak
 */
 app.get("/me/peaks", async (_req, res) => {
-  const user = await prisma.user.findFirst();
-  if (!user) { res.json([]); return; }
+  try {
+    const user = await prisma.user.findFirst();
+    if (!user) { res.json([]); return; }
 
-  const rows = await prisma.$queryRaw<{
-    id: number;
-    name: string;
-    lat: number;
-    lon: number;
-    elevation: number;
-    num_acts: bigint | null;
-    latest_act_id: bigint | null;
-    done: boolean;
-  }[]>`
-    SELECT
-      p.id,
-      p.name,
-      p.lat,
-      p.lon,
-      p.elevation,
-      COUNT(a.id)  AS num_acts,
-      MAX(a.id)    AS latest_act_id,
-      CASE WHEN COUNT(a.id) > 0 THEN true ELSE false END AS done
-    FROM "Peak" p
-    LEFT JOIN "PeakOnActivity" pa ON pa."peakId" = p.id
-    LEFT JOIN "Activity" a
-           ON a.id = pa."activityId"
-          AND a."userId" = ${user.id}
-    GROUP BY p.id
-    ORDER BY p.name;
-  `;
+    const rows = await prisma.$queryRaw<{
+      id: number;
+      name: string;
+      lat: number;
+      lon: number;
+      elevation: number;
+      num_acts: bigint | null;
+      latest_act_id: bigint | null;
+      done: boolean;
+    }[]>`
+      SELECT
+        p.id,
+        p.name,
+        p.lat,
+        p.lon,
+        p.elevation,
+        COUNT(a.id)  AS num_acts,
+        MAX(a.id)    AS latest_act_id,
+        CASE WHEN COUNT(a.id) > 0 THEN true ELSE false END AS done
+      FROM "Peak" p
+      LEFT JOIN "PeakOnActivity" pa ON pa."peakId" = p.id
+      LEFT JOIN "Activity" a
+             ON a.id = pa."activityId"
+            AND a."userId" = ${user.id}
+      GROUP BY p.id
+      ORDER BY p.name;
+    `;
 
-  res.json(
-    rows.map(r => ({
-      ...r,
-      num_acts: Number(r.num_acts ?? 0),
-      latest_act_id: r.latest_act_id ? r.latest_act_id.toString() : null,
-    }))
-  );
+    res.json(
+      rows.map(r => ({
+        ...r,
+        num_acts: Number(r.num_acts ?? 0),
+        latest_act_id: r.latest_act_id ? r.latest_act_id.toString() : null,
+      }))
+    );
+  } catch (e: any) {
+    console.error("/me/peaks failed:", e?.message || e);
+    res.status(500).json({ ok: false, error: "server" });
+  }
 });
 
 // GET /me/ascents: list all climbs by date and peak
 app.get("/me/ascents", async (_req, res) => {
-  const user = await prisma.user.findFirst();
-  if (!user) { res.json([]); return; }
+  try {
+    const user = await prisma.user.findFirst();
+    if (!user) { res.json([]); return; }
 
-  const rows = await prisma.$queryRaw<{
-    peak: string;
-    date: Date;
-    moving: number;
-    gain: number | null;
-    dist: number;
-    act_id: bigint;
-  }[]>`
-    SELECT
-      p.name                     AS peak,
-      a."startDate"              AS date,
-      a."movingTime"             AS moving,
-      a."totalElevationGain"     AS gain,
-      a.distance                 AS dist,
-      a.id                       AS act_id
-    FROM "PeakOnActivity" pa
-    JOIN "Peak"      p ON p.id = pa."peakId"
-    JOIN "Activity"  a ON a.id = pa."activityId"
-    WHERE a."userId" = ${user.id}
-    ORDER BY a."startDate" DESC, p.name;
-  `;
+    const rows = await prisma.$queryRaw<{
+      peak: string;
+      date: Date;
+      moving: number;
+      gain: number | null;
+      dist: number;
+      act_id: bigint;
+    }[]>`
+      SELECT
+        p.name                     AS peak,
+        a."startDate"              AS date,
+        a."movingTime"             AS moving,
+        a."totalElevationGain"     AS gain,
+        a.distance                 AS dist,
+        a.id                       AS act_id
+      FROM "PeakOnActivity" pa
+      JOIN "Peak"      p ON p.id = pa."peakId"
+      JOIN "Activity"  a ON a.id = pa."activityId"
+      WHERE a."userId" = ${user.id}
+      ORDER BY a."startDate" DESC, p.name;
+    `;
 
-  res.json(rows.map(r => ({ ...r, act_id: r.act_id.toString() })));
+    res.json(rows.map(r => ({ ...r, act_id: r.act_id.toString() })));
+  } catch (e: any) {
+    console.error("/me/ascents failed:", e?.message || e);
+    res.status(500).json({ ok: false, error: "server" });
+  }
 });
 
 // POST /me/refresh  → pulls only-new Strava activities and rematches peaks
-app.post("/me/refresh", async (_req, res) => {
+app.post("/me/refresh", async (_req, res) => { try {
   const user = await prisma.user.findFirst();
   if (!user) { res.status(401).json({ ok: false, error: "no-user" }); return; }
 
@@ -272,6 +282,10 @@ app.post("/me/refresh", async (_req, res) => {
   }
 
   res.json({ ok: true, added, matched, sinceEpoch });
+} catch (e: any) {
+  console.error("/me/refresh failed:", e?.message || e);
+  res.status(500).json({ ok: false, error: "server" });
+}
 });
 
 const port = Number(process.env.PORT) || 4000;
