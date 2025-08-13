@@ -55,23 +55,51 @@ router.get("/callback", async (req: Request, res: Response): Promise<void> => {
 
     const { access_token, refresh_token, expires_at } = token.data;
 
-    // If a user cookie already exists, update that user; otherwise create a new one.
+    // Strava includes the athlete object in the token exchange
+    const athleteIdNum: number | undefined = token.data?.athlete?.id;
+
+    // Try to locate an existing user by cookie first, then by Strava athlete id
     const rawUid = req.cookies?.uid;
     const uid = rawUid ? Number(rawUid) : NaN;
-    const existing = Number.isFinite(uid)
+
+    let existing = Number.isFinite(uid)
       ? await prisma.user.findUnique({ where: { id: uid } })
       : null;
 
-    // Only include fields that exist in your Prisma schema (no name/stravaAthleteId)
+    if (!existing && athleteIdNum) {
+      try {
+        existing = await prisma.user.findUnique({
+          where: { stravaId: BigInt(athleteIdNum) },
+        });
+      } catch (_) {
+        // ignore; fallback to create below
+      }
+    }
+
+    // Fields that always update on login/refresh
     const data: any = {
       accessToken: access_token,
       refreshToken: refresh_token,
       tokenExpiresAt: new Date((expires_at as number) * 1000),
     };
 
-    const user = existing
-      ? await prisma.user.update({ where: { id: existing.id }, data })
-      : await prisma.user.create({ data });
+    let user;
+    if (existing) {
+      user = await prisma.user.update({ where: { id: existing.id }, data });
+    } else {
+      if (!athleteIdNum) {
+        console.error("Missing athlete.id in Strava token response");
+        res.status(500).send("Auth failed");
+        return;
+      }
+      user = await prisma.user.create({
+        data: {
+          ...data,
+          // Prisma BigInt expects a JS BigInt
+          stravaId: BigInt(athleteIdNum),
+        },
+      });
+    }
 
     res.cookie("uid", String(user.id), {
       httpOnly: true,
