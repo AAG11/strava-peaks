@@ -15,7 +15,7 @@ const fixedOrigins = [
   "http://localhost:3000",
   "http://127.0.0.1:3000",
   process.env.FRONTEND_URL,                    // stable prod domain
-  "https://strava-peaks.vercel.app",          // short alias
+  "https://strava-peaky.vercel.app",          // short alias
 ].filter(Boolean) as string[];
 
 // Match any preview like:
