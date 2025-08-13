@@ -1,73 +1,80 @@
+import type { Request, Response } from "express";
 import { Router } from "express";
 import axios from "axios";
 import prisma from "../utils/prisma";
 
 const router = Router();
 
-// Express v5 typings expect explicit returns in handlers for async functions
+// Kick off Strava OAuth
+router.get("/login", (_req: Request, res: Response): void => {
+  const client_id = process.env.STRAVA_CLIENT_ID!;
+  const base = process.env.PUBLIC_API_URL || "http://localhost:4000";
+  const redirect_uri = base.replace(/\/$/, "") + "/auth/callback";
 
-// Where the API lives (port 4000 locally)
-const API_BASE = process.env.PUBLIC_API_URL || "http://localhost:4000";
-// Where the web app lives (port 3000 locally)
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+  const url = new URL("https://www.strava.com/oauth/authorize");
+  url.searchParams.set("client_id", client_id);
+  url.searchParams.set("redirect_uri", redirect_uri);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("approval_prompt", "auto");
+  url.searchParams.set("scope", "read,profile:read_all,activity:read_all");
 
-router.get("/login", (_req, res) => {
-  const params = new URLSearchParams({
-    client_id: String(process.env.STRAVA_CLIENT_ID || ""),
-    redirect_uri: `${API_BASE}/auth/callback`,
-    response_type: "code",
-    scope: "read,profile:read_all,activity:read_all",
-    approval_prompt: "auto",
-  });
-  res.redirect(`https://www.strava.com/oauth/authorize?${params.toString()}`);
+  res.redirect(url.toString());
 });
 
-router.get("/callback", async (req, res): Promise<void> => {
-  const code = req.query.code as string;
-  if (!code) { res.status(400).send("Missing code"); return; }
-
+// Strava redirects here with ?code=...
+router.get("/callback", async (req: Request, res: Response): Promise<void> => {
   try {
+    const code = req.query.code as string | undefined;
+    if (!code) { res.status(400).send("Missing code"); return; }
+
     const token = await axios.post("https://www.strava.com/oauth/token", {
-      grant_type: "authorization_code",
       client_id: process.env.STRAVA_CLIENT_ID,
       client_secret: process.env.STRAVA_CLIENT_SECRET,
       code,
+      grant_type: "authorization_code",
     });
 
-    const t = token.data;
-    const athleteId = BigInt(t.athlete?.id);
+    const { athlete, access_token, refresh_token, expires_at } = token.data;
+    const stravaId: number | undefined = athlete?.id;
+    if (!stravaId) { res.status(400).send("No athlete"); return; }
 
-    // Store/refresh tokens for this athlete
-    await prisma.user.upsert({
-      where: { stravaId: athleteId },
-      update: {
-        accessToken: t.access_token,
-        refreshToken: t.refresh_token,
-        tokenExpiresAt: new Date(t.expires_at * 1000),
-      } as any,
-      create: {
-        stravaId: athleteId,
-        accessToken: t.access_token,
-        refreshToken: t.refresh_token,
-        tokenExpiresAt: new Date(t.expires_at * 1000),
-      } as any,
+    // Manual upsert (avoid unique constraint requirement on stravaAthleteId)
+    const existing = await prisma.user.findFirst({ where: { stravaAthleteId: stravaId } });
+
+    const data = {
+      name: athlete?.firstname
+        ? `${athlete.firstname} ${athlete.lastname ?? ""}`.trim()
+        : "Strava user",
+      stravaAthleteId: stravaId,
+      accessToken: access_token,
+      refreshToken: refresh_token,
+      tokenExpiresAt: new Date((expires_at as number) * 1000),
+    } as any;
+
+    const user = existing
+      ? await prisma.user.update({ where: { id: existing.id }, data })
+      : await prisma.user.create({ data });
+
+    // Cross-site cookie for Vercel → SameSite=None + Secure
+    res.cookie("uid", String(user.id), {
+      httpOnly: true,
+      sameSite: "none",
+      secure: true,
+      maxAge: 1000 * 60 * 60 * 24 * 30,
     });
 
-    // Optional: kick off a background refresh (don’t block redirect)
-    try {
-      await axios.post(`${API_BASE}/me/refresh`);
-    } catch (e) {
-      console.warn("post-auth refresh failed (non-fatal)");
-    }
-
-    // Send user back to the React app
-    res.redirect(`${FRONTEND_URL}/?connected=1`);
-    return;
+    const dest = process.env.FRONTEND_URL || "http://localhost:3000";
+    res.redirect(dest);
   } catch (e: any) {
-    console.error("OAuth exchange failed:", e?.response?.data || e.message);
-    res.redirect(`${FRONTEND_URL}/?error=strava_oauth`);
-    return;
+    console.error("/auth/callback failed:", e?.response?.data || e?.message || e);
+    res.status(500).send("Auth failed");
   }
+});
+
+// Log out (clears cookie)
+router.post("/logout", (_req: Request, res: Response): void => {
+  res.clearCookie("uid", { sameSite: "none", secure: true });
+  res.json({ ok: true });
 });
 
 export default router;
