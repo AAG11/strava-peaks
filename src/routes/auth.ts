@@ -34,28 +34,26 @@ router.get("/callback", async (req: Request, res: Response): Promise<void> => {
       grant_type: "authorization_code",
     });
 
-    const { athlete, access_token, refresh_token, expires_at } = token.data;
-    const stravaId: number | undefined = athlete?.id;
-    if (!stravaId) { res.status(400).send("No athlete"); return; }
+    const { access_token, refresh_token, expires_at } = token.data;
 
-    // Manual upsert (avoid unique constraint requirement on stravaAthleteId)
-    const existing = await prisma.user.findFirst({ where: { stravaAthleteId: stravaId } });
+    // If a user cookie already exists, update that user; otherwise create a new one.
+    const rawUid = req.cookies?.uid;
+    const uid = rawUid ? Number(rawUid) : NaN;
+    const existing = Number.isFinite(uid)
+      ? await prisma.user.findUnique({ where: { id: uid } })
+      : null;
 
-    const data = {
-      name: athlete?.firstname
-        ? `${athlete.firstname} ${athlete.lastname ?? ""}`.trim()
-        : "Strava user",
-      stravaAthleteId: stravaId,
+    // Only include fields that exist in your Prisma schema (no name/stravaAthleteId)
+    const data: any = {
       accessToken: access_token,
       refreshToken: refresh_token,
       tokenExpiresAt: new Date((expires_at as number) * 1000),
-    } as any;
+    };
 
     const user = existing
       ? await prisma.user.update({ where: { id: existing.id }, data })
       : await prisma.user.create({ data });
 
-    // Cross-site cookie for Vercel → SameSite=None + Secure
     res.cookie("uid", String(user.id), {
       httpOnly: true,
       sameSite: "none",
