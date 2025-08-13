@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import authRouter from "./routes/auth";
 import prisma from "./utils/prisma";        // import your Prisma client
-import cors from "cors";
+import cors, { CorsOptions } from "cors";
 import axios from "axios";
 import { matchPeaksForActivity } from "./utils/geo";
 
@@ -11,21 +11,42 @@ dotenv.config();
 
 const app = express();
 
-const allowed = [process.env.FRONTEND_URL, "http://localhost:3000", "http://127.0.0.1:3000"].filter(Boolean) as string[];
+const fixedOrigins = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  process.env.FRONTEND_URL,                    // stable prod domain
+  "https://strava-peaks.vercel.app",          // short alias
+].filter(Boolean) as string[];
 
-app.use(cors({
+// Match any preview like:
+// https://strava-peaks-<hash>-agabbs-projects.vercel.app
+const vercelPreview = /^https:\/\/strava-peaks-[a-z0-9-]+-agabbs-projects\.vercel\.app$/;
+
+const corsOptions: CorsOptions = {
   origin(origin, cb) {
-    // Allow server-to-server (no Origin) and any whitelisted origin
-    if (!origin) return cb(null, true);
-    cb(null, allowed.includes(origin));
+    if (!origin) return cb(null, true); // health/curl/no-origin
+    if (fixedOrigins.includes(origin) || vercelPreview.test(origin)) return cb(null, true);
+    return cb(null, false);
   },
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
-}));
+  optionsSuccessStatus: 204,
+  maxAge: 86400,
+};
 
+app.use(cors(corsOptions));
 app.use((req, res, next) => {
-  if (req.method === "OPTIONS") { res.sendStatus(204); return; }
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
+
+// (optional) tiny request logger to confirm what's hitting you
+app.use((req, _res, next) => {
+  console.log(req.method, req.originalUrl, "origin:", req.get("origin"));
   next();
 });
 
