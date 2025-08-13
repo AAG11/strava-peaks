@@ -7,12 +7,15 @@ const router = Router();
 
 // Kick off Strava OAuth
 router.get("/login", (_req: Request, res: Response): void => {
-  const client_id = process.env.STRAVA_CLIENT_ID!;
-  const base = process.env.PUBLIC_API_URL || "http://localhost:4000";
+  const base =
+    process.env.PUBLIC_API_URL ||
+    (process.env.NODE_ENV === "production"
+      ? "https://strava-peaks-api.fly.dev"
+      : "http://localhost:4000");
   const redirect_uri = base.replace(/\/$/, "") + "/auth/callback";
 
   const url = new URL("https://www.strava.com/oauth/authorize");
-  url.searchParams.set("client_id", client_id);
+  url.searchParams.set("client_id", process.env.STRAVA_CLIENT_ID!);
   url.searchParams.set("redirect_uri", redirect_uri);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("approval_prompt", "auto");
@@ -27,12 +30,28 @@ router.get("/callback", async (req: Request, res: Response): Promise<void> => {
     const code = req.query.code as string | undefined;
     if (!code) { res.status(400).send("Missing code"); return; }
 
-    const token = await axios.post("https://www.strava.com/oauth/token", {
-      client_id: process.env.STRAVA_CLIENT_ID,
-      client_secret: process.env.STRAVA_CLIENT_SECRET,
+    const clientId = process.env.STRAVA_CLIENT_ID;
+    const clientSecret = process.env.STRAVA_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      console.error("Missing STRAVA_CLIENT_ID or STRAVA_CLIENT_SECRET");
+      res.status(500).send("Server misconfigured");
+      return;
+    }
+
+    const body = new URLSearchParams({
+      client_id: clientId!,
+      client_secret: clientSecret!,
       code,
       grant_type: "authorization_code",
     });
+    const token = await axios.post(
+      "https://www.strava.com/oauth/token",
+      body.toString(),
+      {
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        timeout: 15000,
+      }
+    );
 
     const { access_token, refresh_token, expires_at } = token.data;
 
@@ -64,7 +83,8 @@ router.get("/callback", async (req: Request, res: Response): Promise<void> => {
     const dest = process.env.FRONTEND_URL || "http://localhost:3000";
     res.redirect(dest);
   } catch (e: any) {
-    console.error("/auth/callback failed:", e?.response?.data || e?.message || e);
+    const detail = e?.response?.data || e?.message || e;
+    console.error("/auth/callback failed:", detail);
     res.status(500).send("Auth failed");
   }
 });
