@@ -4,128 +4,150 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-type Ascent = {
-  peak_id: number;
-  peak_name: string;
-  act_id: string;
-  date: string; // ISO
-  distance_m: number | null;
-  moving_time_s: number | null;
-  gain_m: number | null;
+// Shape returned by GET /me/peaks
+// (we only rely on a few fields; extra fields are ignored)
+type Peak = {
+  id: number;
+  name: string;
+  done?: boolean;
+  latest_act_id?: string | null;
 };
 
 const API = process.env.NEXT_PUBLIC_API_URL!;
 
-export default function AscentsPage() {
-  const [rows, setRows] = useState<Ascent[]>([]);
+export default function DashboardPage() {
+  const [peaks, setPeaks] = useState<Peak[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  async function load() {
-    setLoading(true);
-    setError(null);
+  async function refreshNow() {
     try {
-      const r = await fetch(`${API}/me/ascents`, { credentials: "include" });
+      setRefreshing(true);
+      const r = await fetch(`${API}/me/refresh`, {
+        method: "POST",
+        credentials: "include",
+      });
       if (r.status === 401) {
-        // Not logged in: bounce to splash to connect Strava
         window.location.href = "/splash";
         return;
       }
-      const data = await r.json();
-      setRows(Array.isArray(data) ? data : []);
+      await loadPeaks();
+    } catch (e) {
+      console.error("refresh failed", e);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  async function loadPeaks() {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetch(`${API}/me/peaks`, { credentials: "include" });
+
+      // If the API says we are not authenticated, bounce to splash
+      if (r.status === 401) {
+        window.location.href = "/splash";
+        return;
+      }
+
+      if (!r.ok) {
+        throw new Error(`API error ${r.status}`);
+      }
+
+      const data = await r.json().catch(() => []);
+      // Defensive: ensure we always set an array
+      setPeaks(Array.isArray(data) ? data : []);
     } catch (e: any) {
-      console.error(e);
-      setError("Failed to load ascents.");
-      setRows([]);
+      console.error("/me/peaks fetch failed", e);
+      setError("Failed to load peaks.");
+      setPeaks([]);
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    load();
+    loadPeaks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function fmtMiles(m: number | null) {
-    if (m === null || m === undefined) return "—";
-    return (m / 1609.34).toFixed(1);
-  }
-
-  function fmtFeet(m: number | null) {
-    if (m === null || m === undefined) return "—";
-    return Math.round(m * 3.28084).toLocaleString();
-  }
-
-  function fmtHMS(s: number | null) {
-    if (s === null || s === undefined) return "—";
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    return h ? `${h}h ${m}m` : `${m}m ${sec}s`;
-  }
-
-  function fmtDate(iso: string) {
-    const d = new Date(iso);
-    return isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
-  }
+  const doneCount = Array.isArray(peaks)
+    ? peaks.filter((p) => Boolean((p as any).done)).length
+    : 0;
 
   return (
-    <main className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Ascents</h1>
+    <main className="mx-auto max-w-5xl p-6 space-y-6">
+      <header className="flex items-center justify-between">
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-3xl font-bold">NH 4,000‑Footer Progress</h1>
+          {!loading && (
+            <span className="text-gray-600">{doneCount}/48 complete</span>
+          )}
+        </div>
+        <button
+          onClick={refreshNow}
+          disabled={refreshing}
+          className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50"
+        >
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </button>
+      </header>
 
       {loading && <p>Loading…</p>}
       {error && <p className="text-red-600">{error}</p>}
 
       {!loading && !error && (
-        <div className="overflow-x-auto">
-          <table className="min-w-full border">
-            <thead>
-              <tr className="bg-gray-50">
-                <th className="p-2 text-left">Peak</th>
-                <th className="p-2 text-left">Date</th>
-                <th className="p-2 text-right">Distance (mi)</th>
-                <th className="p-2 text-right">Gain (ft)</th>
-                <th className="p-2 text-right">Moving Time</th>
-                <th className="p-2 text-left">Strava</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={`${r.peak_id}-${r.act_id}`} className="odd:bg-white even:bg-gray-50">
-                  <td className="p-2">{r.peak_name}</td>
-                  <td className="p-2">{fmtDate(r.date)}</td>
-                  <td className="p-2 text-right">{fmtMiles(r.distance_m)}</td>
-                  <td className="p-2 text-right">{fmtFeet(r.gain_m)}</td>
-                  <td className="p-2 text-right">{fmtHMS(r.moving_time_s)}</td>
-                  <td className="p-2">
-                    <a
-                      className="text-blue-600 underline"
-                      target="_blank"
-                      rel="noreferrer"
-                      href={`https://www.strava.com/activities/${r.act_id}`}
-                    >
-                      Open
-                    </a>
-                  </td>
-                </tr>
-              ))}
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="p-4 text-center text-gray-500">
-                    No ascents found yet.
-                  </td>
-                </tr>
+        <section className="grid md:grid-cols-2 gap-6">
+          <div>
+            <h2 className="font-semibold mb-2">✅ Done</h2>
+            <ul className="list-disc list-inside space-y-1">
+              {peaks
+                .filter((p) => Boolean((p as any).done))
+                .map((p) => (
+                  <li key={p.id}>
+                    {p.latest_act_id ? (
+                      <a
+                        href={`https://www.strava.com/activities/${p.latest_act_id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-green-700 underline"
+                      >
+                        {p.name}
+                      </a>
+                    ) : (
+                      <span className="text-green-700">{p.name}</span>
+                    )}
+                  </li>
+                ))}
+              {peaks.filter((p) => Boolean((p as any).done)).length === 0 && (
+                <li className="text-gray-500">None yet.</li>
               )}
-            </tbody>
-          </table>
-        </div>
+            </ul>
+          </div>
+
+          <div>
+            <h2 className="font-semibold mb-2">📋 To do</h2>
+            <ul className="list-disc list-inside space-y-1">
+              {peaks
+                .filter((p) => !Boolean((p as any).done))
+                .map((p) => (
+                  <li key={p.id}>{p.name}</li>
+                ))}
+              {peaks.filter((p) => !Boolean((p as any).done)).length === 0 && (
+                <li className="text-gray-500">All set — nice!</li>
+              )}
+            </ul>
+          </div>
+        </section>
       )}
 
-      <div className="mt-4">
-        <Link href="/" className="text-blue-700 underline">
-          ← Back to dashboard
+      <nav className="pt-2">
+        <Link href="/ascents" className="text-blue-700 underline">
+          View all ascents →
         </Link>
-      </div>
+      </nav>
     </main>
   );
 }
