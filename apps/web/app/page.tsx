@@ -1,123 +1,131 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
-import { useEffect, useState } from "react";
-import dynamic from "next/dynamic";
-import { CircularProgressbar, buildStyles } from "react-circular-progressbar";
-import "react-circular-progressbar/dist/styles.css";
-import "mapbox-gl/dist/mapbox-gl.css";
-import "./globals.css";
 
-type Peak = {
-  id: number;
-  name: string;
-  lat: number;
-  lon: number;
-  elevation: number;
-  done: boolean;
-  latest_act_id?: string; // you link to this below
+import { useEffect, useState } from "react";
+import Link from "next/link";
+
+type Ascent = {
+  peak_id: number;
+  peak_name: string;
+  act_id: string;
+  date: string; // ISO
+  distance_m: number | null;
+  moving_time_s: number | null;
+  gain_m: number | null;
 };
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-const Map = dynamic(() => import("./Map"), { ssr: false });
+const API = process.env.NEXT_PUBLIC_API_URL!;
 
-export default function Home() {
-  const [peaks, setPeaks] = useState<Peak[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
+export default function AscentsPage() {
+  const [rows, setRows] = useState<Ascent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  async function loadPeaks() {
-    const data = await fetch(`${API}/me/peaks`).then(r => r.json());
-    setPeaks(data);
-  }
-
-  useEffect(() => {
-    loadPeaks();
-  }, []);
-  useEffect(() => {
-    const q = new URLSearchParams(window.location.search);
-    if (q.get("connected") === "1") {
-      refreshNow().finally(() => {
-        // remove the query param so it doesn’t re-trigger
-        window.history.replaceState({}, "", window.location.pathname);
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  async function refreshNow() {
+  async function load() {
+    setLoading(true);
+    setError(null);
     try {
-      setRefreshing(true);
-      const r = await fetch(`${API}/me/refresh`, { method: "POST" });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({} as any));
-        if (j?.error === "connect-strava" && j.login) {
-          window.location.href = j.login; // send to Strava login flow
-          return;
-        }
-        throw new Error(`Refresh failed: ${r.status}`);
+      const r = await fetch(`${API}/me/ascents`, { credentials: "include" });
+      if (r.status === 401) {
+        // Not logged in: bounce to splash to connect Strava
+        window.location.href = "/splash";
+        return;
       }
-      await loadPeaks();
-    } catch (e) {
+      const data = await r.json();
+      setRows(Array.isArray(data) ? data : []);
+    } catch (e: any) {
       console.error(e);
-      alert("Refresh failed. Check API logs.");
+      setError("Failed to load ascents.");
+      setRows([]);
     } finally {
-      setRefreshing(false);
+      setLoading(false);
     }
   }
 
-  const done = peaks.filter(p => p.done).length;
+  useEffect(() => {
+    load();
+  }, []);
+
+  function fmtMiles(m: number | null) {
+    if (m === null || m === undefined) return "—";
+    return (m / 1609.34).toFixed(1);
+  }
+
+  function fmtFeet(m: number | null) {
+    if (m === null || m === undefined) return "—";
+    return Math.round(m * 3.28084).toLocaleString();
+  }
+
+  function fmtHMS(s: number | null) {
+    if (s === null || s === undefined) return "—";
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    return h ? `${h}h ${m}m` : `${m}m ${sec}s`;
+  }
+
+  function fmtDate(iso: string) {
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
+  }
 
   return (
-    <main className="flex flex-col gap-6 p-6">
-      <div className="flex items-center gap-3">
-        <h1 className="text-3xl font-bold">NH 4 000-Footer Progress</h1>
-        <button
-          onClick={refreshNow}
-          disabled={refreshing}
-          className="px-3 py-1 rounded bg-blue-600 text-white disabled:opacity-50"
-          title="Pull newest activities from Strava"
-        >
-          {refreshing ? "Refreshing…" : "Refresh from Strava"}
-        </button>
+    <main className="p-6">
+      <h1 className="text-2xl font-bold mb-4">Ascents</h1>
+
+      {loading && <p>Loading…</p>}
+      {error && <p className="text-red-600">{error}</p>}
+
+      {!loading && !error && (
+        <div className="overflow-x-auto">
+          <table className="min-w-full border">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="p-2 text-left">Peak</th>
+                <th className="p-2 text-left">Date</th>
+                <th className="p-2 text-right">Distance (mi)</th>
+                <th className="p-2 text-right">Gain (ft)</th>
+                <th className="p-2 text-right">Moving Time</th>
+                <th className="p-2 text-left">Strava</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={`${r.peak_id}-${r.act_id}`} className="odd:bg-white even:bg-gray-50">
+                  <td className="p-2">{r.peak_name}</td>
+                  <td className="p-2">{fmtDate(r.date)}</td>
+                  <td className="p-2 text-right">{fmtMiles(r.distance_m)}</td>
+                  <td className="p-2 text-right">{fmtFeet(r.gain_m)}</td>
+                  <td className="p-2 text-right">{fmtHMS(r.moving_time_s)}</td>
+                  <td className="p-2">
+                    <a
+                      className="text-blue-600 underline"
+                      target="_blank"
+                      rel="noreferrer"
+                      href={`https://www.strava.com/activities/${r.act_id}`}
+                    >
+                      Open
+                    </a>
+                  </td>
+                </tr>
+              ))}
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="p-4 text-center text-gray-500">
+                    No ascents found yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="mt-4">
+        <Link href="/" className="text-blue-700 underline">
+          ← Back to dashboard
+        </Link>
       </div>
-
-      <div className="w-40">
-        <CircularProgressbar
-          value={done}
-          maxValue={48}
-          text={`${done}/48`}
-          styles={buildStyles({ pathColor: "#16a34a", textSize: "18px" })}
-        />
-      </div>
-
-      <section className="grid md:grid-cols-2 gap-4">
-        <ul>
-          <h2 className="font-semibold">✅ Done</h2>
-          {peaks.filter(p => p.done).map(p => (
-            <li key={p.id}>
-              <a
-                href={`https://www.strava.com/activities/${p.latest_act_id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-green-700 hover:underline"
-              >
-                {p.name}
-              </a>
-            </li>
-          ))}
-        </ul>
-
-        <ul className="space-y-1">
-          <h2 className="font-semibold">📋 To do</h2>
-          {peaks.filter(p => !p.done).map(p => (
-            <li key={p.id}>{p.name}</li>
-          ))}
-        </ul>
-      </section>
-
-      <a href="/ascents" className="text-blue-700 underline">
-        Full ascents table
-      </a>
-
-      <Map peaks={peaks} />
     </main>
   );
 }
